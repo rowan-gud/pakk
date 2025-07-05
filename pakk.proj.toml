@@ -1,1 +1,2 @@
 name = "pakk"
+root_import = "github.com/rowan-gud/pakk"

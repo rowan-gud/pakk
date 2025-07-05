@@ -3,7 +3,8 @@ package project
 import "github.com/BurntSushi/toml"
 
 type Project struct {
-	Name string `toml:"name"`
+	Name       string `toml:"name"`
+	RootImport string `toml:"root_import"`
 
 	ctx ProjectContext `toml:"-"`
 }
@@ -16,9 +17,10 @@ func Parse(filePath string, outDir string) (*Project, error) {
 	}
 
 	proj.ctx = ProjectContext{
-		Name:   proj.Name,
-		Path:   filePath,
-		OutDir: outDir,
+		Name:       proj.Name,
+		Path:       filePath,
+		OutDir:     outDir,
+		RootImport: proj.RootImport,
 	}
 
 	return &proj, nil
