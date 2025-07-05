@@ -1,0 +1,11 @@
+name = "pkga"
+kind = "pkg"
+
+[pkg]
+
+sources = ['pkga.go']
+
+[[pkg.provides]]
+
+kind = "import"
+path = ["{{ .Proj.RootImport }}", "examples", "pkga"]

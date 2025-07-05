@@ -1,0 +1,17 @@
+name = "pkgb"
+kind = "pkg"
+
+[pkg]
+
+
+[[pkg.pre]]
+
+sources = ["pkgb.templ"]
+run_pkg = ["go", "tool", "templ", "generate", "-path", "{{ .Mod.Path }}"]
+run_file = ["go", "tool", "templ", "generate", "-f", "{{ .Source }}"]
+generates = ["pkgb_templ.go"]
+
+[[pkg.provides]]
+
+kind = "import"
+path = ["examples", "pkgb"]
