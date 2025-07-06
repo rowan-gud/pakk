@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/rowan-gud/pakk/refs/heads/main/schemas/pakk.proj.schema.json",
+  "title": "Project",
+  "description": "A project file for a pakk project",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "description": "The name of the project"
+    },
+    "root_import": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The import segments to prepend to any package imports"
+    }
+  },
+  "required": ["name"],
+  "additionalProperties": false
+}

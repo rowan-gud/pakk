@@ -1,8 +1,8 @@
-package project
+package renderctx
 
 type ProjectContext struct {
 	Name       string
-	Path       string
+	Dir        string
 	OutDir     string
 	RootImport string
 }

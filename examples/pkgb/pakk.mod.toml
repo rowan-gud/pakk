@@ -1,17 +1,13 @@
+"$schema" = "../../schemas/pakk.mod.schema.json"
+
 name = "pkgb"
-kind = "pkg"
-
-[pkg]
-
 
 [[pkg.pre]]
 
-sources = ["pkgb.templ"]
-run_pkg = ["go", "tool", "templ", "generate", "-path", "{{ .Mod.Path }}"]
-run_file = ["go", "tool", "templ", "generate", "-f", "{{ .Source }}"]
+each = "*.templ"
+run = ["go", "tool", "templ", "generate", "-f", "{{ .Item }}"]
 generates = ["pkgb_templ.go"]
 
-[[pkg.provides]]
+[pkg.provides.import]
 
-kind = "import"
 path = ["examples", "pkgb"]

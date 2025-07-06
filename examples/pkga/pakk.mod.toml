@@ -1,11 +1,11 @@
+"$schema" = "../../schemas/pakk.mod.schema.json"
+
 name = "pkga"
-kind = "pkg"
 
 [pkg]
 
 sources = ['pkga.go']
 
-[[pkg.provides]]
+[pkg.provides.import]
 
-kind = "import"
 path = ["{{ .Proj.RootImport }}", "examples", "pkga"]

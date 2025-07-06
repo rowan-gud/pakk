@@ -1,2 +1,11 @@
+"$schema" = "../../../schemas/pakk.mod.schema.json"
+
 name = "foo"
-kind = "bin"
+deps = ["pkga", "pkgb"]
+
+[bin]
+
+version = "v0.1.0"
+sources = "*.go"
+artifacts = ["{{ .Proj.OutDir }}/{{ .Mod.Name }}"]
+cmd = "go build -o {{ .Proj.OutDir }}/{{ .Mod.Name }} {{ .Mod.Path }}"
