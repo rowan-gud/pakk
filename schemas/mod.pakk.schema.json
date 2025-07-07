@@ -12,6 +12,12 @@
       "type": "string",
       "description": "The name of the project"
     },
+    "deps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "bin": {
       "type": "object",
       "properties": {

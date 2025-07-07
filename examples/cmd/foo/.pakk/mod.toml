@@ -1,0 +1,6 @@
+name = "{{ .Values.name }}"
+
+[bin]
+
+cmd = "go build -o {{ .Project.Out }}/{{ .Values.name }} {{ .Mod.Path }}"
+sources = "*.go"

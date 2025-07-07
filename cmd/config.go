@@ -1,16 +1,19 @@
 package main
 
 import (
-	"errors"
+	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 
+	"github.com/BurntSushi/toml"
+	"github.com/rowan-gud/pakk/collections"
 	"github.com/rowan-gud/pakk/config/mod"
-	"github.com/rowan-gud/pakk/config/proj"
-	"github.com/rowan-gud/pakk/config/renderctx"
+	"github.com/rowan-gud/pakk/config/project"
+	"github.com/rowan-gud/pakk/config/render"
 )
 
 var defaultExcludeDirs = []string{
@@ -19,41 +22,100 @@ var defaultExcludeDirs = []string{
 
 type parseConfigOptions struct {
 	RootDir     string
-	OutDir      string
 	ExcludeDirs []string
 }
 
-func parseConfig(opts *parseConfigOptions) (*proj.Project, error) {
-	if len(opts.ExcludeDirs) == 0 {
-		opts.ExcludeDirs = defaultExcludeDirs
+func parseValues(pakkDir string) (map[string]any, error) {
+	valuesFile := filepath.Join(pakkDir, "values.toml")
+
+	values := make(map[string]any)
+	if _, err := toml.DecodeFile(valuesFile, &values); err != nil {
+		return nil, err
 	}
 
-	projectFile, err := getProjFileName(opts)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get project file name: %w", err)
-	}
+	return values, nil
+}
 
-	project, err := proj.Parse(projectFile, opts.OutDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse project file: %w", err)
-	}
+func renderProjectFile(pakkDir string, ctx *render.ProjectContext) ([]byte, error) {
+	helpersFile := filepath.Join(pakkDir, "helpers.tpl")
+	projectFile := filepath.Join(pakkDir, "project.toml")
 
-	modules, err := findModules(opts.RootDir, opts, &project.Ctx)
+	tpl, err := template.ParseFiles(helpersFile, projectFile)
 	if err != nil {
 		return nil, err
 	}
 
-	project.Modules = modules
+	var buf bytes.Buffer
+	if err := tpl.ExecuteTemplate(&buf, "project.toml", ctx); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func renderModFile(pakkDir string, ctx *render.RenderContext) ([]byte, error) {
+	helpersFile := filepath.Join(pakkDir, "helpers.tpl")
+	projectFile := filepath.Join(pakkDir, "mod.toml")
+
+	tpl, err := template.ParseFiles(helpersFile, projectFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	if err := tpl.ExecuteTemplate(&buf, "mod.toml", ctx); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+func parseProject(rootDir string) (*project.Project, error) {
+	pakkDir := filepath.Join(rootDir, ".pakk")
+	outDir := filepath.Join(pakkDir, "out")
+
+	values, err := parseValues(pakkDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse project values: %w", err)
+	}
+
+	ctx := &render.ProjectContext{
+		Out:    outDir,
+		Path:   rootDir,
+		Values: values,
+	}
+
+	projectBytes, err := renderProjectFile(pakkDir, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render project file: %w", err)
+	}
+
+	project, err := project.Parse(projectBytes, ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	return project, nil
 }
 
-func findModules(rootDir string, opts *parseConfigOptions, projCtx *renderctx.ProjectContext) ([]*mod.Mod, error) {
-	abs, err := filepath.Abs(rootDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+func parseConfig(opts *parseConfigOptions) (*project.Project, error) {
+	if len(opts.ExcludeDirs) == 0 {
+		opts.ExcludeDirs = defaultExcludeDirs
 	}
 
+	project, err := parseProject(opts.RootDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := findModules(opts.RootDir, opts, project); err != nil {
+		return nil, err
+	}
+
+	return project, nil
+}
+
+func findModules(rootDir string, opts *parseConfigOptions, project *project.Project) error {
 	excludeDirs := make([]string, len(opts.ExcludeDirs))
 
 	for idx, dir := range opts.ExcludeDirs {
@@ -64,38 +126,66 @@ func findModules(rootDir string, opts *parseConfigOptions, projCtx *renderctx.Pr
 		}
 	}
 
-	modFiles, err := getMatchingFiles(abs, func(path string) bool {
+	pakkDirs, err := getMatchingPaths(rootDir, func(path string, d fs.DirEntry) bool {
 		for _, dir := range opts.ExcludeDirs {
-			if strings.Contains(path, dir) {
+			if isExcluded(path, dir) {
 				return false
 			}
 		}
 
-		return isModFile(path)
+		return d.IsDir() && d.Name() == ".pakk"
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	modules := make([]*mod.Mod, len(modFiles))
+	// We have at most this many mod files
+	modDirs := make([]string, 0, len(pakkDirs))
 
-	for idx, file := range modFiles {
-		module, err := mod.Parse(file, projCtx)
+	for _, dir := range pakkDirs {
+		modFile := filepath.Join(dir, "mod.toml")
+		if _, err := os.Stat(modFile); err == nil {
+			modDirs = append(modDirs, filepath.Dir(dir))
+		}
+	}
+
+	for _, dir := range modDirs {
+		pakkDir := filepath.Join(dir, ".pakk")
+
+		values, err := parseValues(pakkDir)
 		if err != nil {
-			return nil, fmt.Errorf("module %s: %w", file, err)
+			return err
 		}
 
-		modules[idx] = module
+		ctx := &render.RenderContext{
+			Mod: render.ModContext{
+				Path: dir,
+			},
+			Project: project.Ctx(),
+			Values:  values,
+		}
+
+		modBytes, err := renderModFile(pakkDir, ctx)
+		if err != nil {
+			return err
+		}
+
+		module, err := mod.Parse(modBytes, ctx)
+		if err != nil {
+			return err
+		}
+
+		project.AddMod(module)
 	}
 
-	return modules, nil
+	return nil
 }
 
-func getMatchingFiles(rootDir string, fn func(path string) bool) ([]string, error) {
+func getMatchingPaths(rootDir string, fn func(path string, d fs.DirEntry) bool) ([]string, error) {
 	files := []string{}
 
 	err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
-		if !d.IsDir() && fn(path) {
+		if fn(path, d) {
 			files = append(files, path)
 		}
 
@@ -108,33 +198,39 @@ func getMatchingFiles(rootDir string, fn func(path string) bool) ([]string, erro
 	return files, nil
 }
 
-func getProjFileName(opts *parseConfigOptions) (string, error) {
-	if opts.RootDir != "" {
-		entries, err := os.ReadDir(opts.RootDir)
-		if err != nil {
-			return "", err
-		}
+func isExcluded(path string, dir string) bool {
+	pathList := filepath.SplitList(path)
+	dirList := filepath.SplitList(dir)
 
-		for _, file := range entries {
-			if !file.IsDir() && isProjFile(file.Name()) {
-				return filepath.Join(opts.RootDir, file.Name()), nil
-			}
-		}
+	cleanedPathList := collections.NewStack[string]()
+	cleanedDirList := collections.NewStack[string]()
 
-		return "", errors.New("no project file found")
+	for _, s := range pathList {
+		if s == ".." && !cleanedPathList.Empty() {
+			cleanedPathList.Pop()
+		}
+		if s != "." {
+			cleanedPathList.Push(s)
+		}
 	}
 
-	return "", errors.New("no project file provided")
-}
+	for _, s := range dirList {
+		if s == ".." && !cleanedDirList.Empty() {
+			cleanedDirList.Pop()
+		}
+		if s != "." {
+			cleanedDirList.Push(s)
+		}
+	}
 
-func isProjFile(path string) bool {
-	name := filepath.Base(path)
+	pathList = cleanedPathList.ToList()
+	dirList = cleanedDirList.ToList()
 
-	return name == "pakk.proj.toml"
-}
+	for idx, s := range dirList {
+		if s != "*" && s != pathList[idx] {
+			return false
+		}
+	}
 
-func isModFile(path string) bool {
-	name := filepath.Base(path)
-
-	return name == "pakk.mod.toml"
+	return true
 }

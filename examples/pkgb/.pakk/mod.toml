@@ -1,0 +1,11 @@
+name = "{{ .Values.name }}"
+
+[[pkg.pre]]
+
+each = "*.templ"
+cmd = "go tool templ generate -f -"
+generates = ["pkgb_templ.go"]
+
+[pkg.provides.import]
+
+path = ["examples", "pkgb"]

@@ -25,6 +25,14 @@ func (s *Stack[T]) Len() int {
 	return s.len
 }
 
+func (s *Stack[T]) ToList() []T {
+	list := make([]T, s.len)
+
+	copy(list, s.data)
+
+	return list
+}
+
 func (s *Stack[T]) Peek() *T {
 	if s.Empty() {
 		return nil

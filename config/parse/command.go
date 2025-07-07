@@ -1,18 +1,51 @@
-package parser
+package parse
 
-func ParseCommand(data any) ([]string, error) {
+import (
+	"os/exec"
+
+	"github.com/BurntSushi/toml"
+)
+
+type Command struct {
+	*exec.Cmd
+	raw any
+}
+
+func (c *Command) Raw() any {
+	return c.raw
+}
+
+func (c Command) MarshalTOML() ([]byte, error) {
+	return toml.Marshal(c.raw)
+}
+
+func (c *Command) UnmarshalTOML(data any) error {
 	if data == nil {
-		return nil, nilErr([]string{"string", "[]string"})
+		return nilErr("Command")
 	}
+
+	var cmds []string
+	var err error
 
 	switch d := data.(type) {
 	case string:
-		return parseCommandFromString(d)
+		cmds, err = parseCommandFromString(d)
 	case []any:
-		return parseStringArrayFromAnyArray(d)
+		cmds, err = parseStringArrayFromAnyArray(d)
+	case []string:
+		cmds = d
 	default:
-		return nil, typeErr([]string{"string", "[]string"}, d)
+		return typeErr("Command", d)
 	}
+
+	if err != nil {
+		return err
+	}
+
+	c.raw = data
+	c.Cmd = exec.Command(cmds[0], cmds[1:]...)
+
+	return nil
 }
 
 func parseCommandFromString(s string) ([]string, error) {

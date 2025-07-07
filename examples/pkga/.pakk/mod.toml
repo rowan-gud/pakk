@@ -1,0 +1,9 @@
+name = "{{ .Values.name }}"
+
+[pkg]
+
+sources = ['pkga.go']
+
+[pkg.provides.import]
+
+path = ["examples", "pkga"]

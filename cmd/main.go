@@ -2,8 +2,11 @@ package main
 
 import (
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/BurntSushi/toml"
 )
 
 func main() {
@@ -18,13 +21,26 @@ func main() {
 
 	project, err := parseConfig(&parseConfigOptions{
 		RootDir: root,
-		OutDir:  out,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	if err := buildProject(project); err != nil {
-		log.Fatal(err)
+	marshalled, err := toml.Marshal(project)
+	if err != nil {
+		slog.Error("failed to marshal project",
+			slog.Any("error", err),
+		)
 	}
+
+	log.Println(string(marshalled))
+
+	marshalled, err = toml.Marshal(map[string]any{"modules": project.Modules()})
+	if err != nil {
+		slog.Error("failed to marshal modules",
+			slog.Any("error", err),
+		)
+	}
+
+	log.Println(string(marshalled))
 }

@@ -1,4 +1,4 @@
-package parser
+package parse
 
 import "strings"
 
@@ -39,9 +39,24 @@ func (s *tokenStream) Seek(pos int) {
 }
 
 func (s *tokenStream) Take() string {
-	defer func() {
-		s.curr += 1
-	}()
+	tok := s.chars[s.curr]
+	s.curr += 1
 
-	return s.chars[s.curr]
+	return tok
+}
+
+func (s *tokenStream) TakeWhile(fn func(token string) bool) string {
+	res := ""
+
+	for s.Next() {
+		tok := s.Peek()
+
+		if fn(tok) {
+			res += s.Take()
+		} else {
+			break
+		}
+	}
+
+	return res
 }
