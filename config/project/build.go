@@ -6,12 +6,13 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/BurntSushi/toml"
 	"github.com/rowan-gud/pakk/collections"
 	"github.com/rowan-gud/pakk/config/mod"
 )
 
 func (p *Project) Build() error {
-	buildPlan := make(map[string][][]*mod.Mod)
+	binRoots := []*collections.DirectedGraphNode[string, *mod.Mod]{}
 
 	for key, node := range p.modules.Nodes() {
 		if node.Data().Bin != nil {
@@ -19,52 +20,63 @@ func (p *Project) Build() error {
 				return fmt.Errorf("cannot build module %s: cyclic graph", key)
 			}
 
-			plan, err := p.planBuildRoot(node)
-			if err != nil {
-				return fmt.Errorf("failed to construct build plan: %w", err)
-			}
-			buildPlan[key] = plan
+			binRoots = append(binRoots, node)
 		}
 	}
 
-	for key, layers := range buildPlan {
-		if len(layers) == 0 {
+	buildPlan, err := p.planBuildRoots(binRoots)
+	if err != nil {
+		return fmt.Errorf("failed to construct build plan: %w", err)
+	}
+
+	marshalled, err := toml.Marshal(buildPlan)
+	if err != nil {
+		p.logger.Warn("failed to marshal build plan")
+		p.logger.Info("build plan",
+			slog.Any("plan", buildPlan),
+		)
+	} else {
+		p.logger.Info("build plan",
+			slog.String("plan", string(marshalled)),
+		)
+	}
+
+	for _, layer := range buildPlan {
+		if len(layer) == 0 {
 			continue
 		}
 
-		for _, layer := range layers {
-			mut := sync.Mutex{}
-			errChan := make(chan error)
+		mut := sync.Mutex{}
+		errChan := make(chan error)
 
-			for _, mod := range layer {
-				p.logger.Info("building module",
-					slog.String("module", mod.Path()),
-				)
+		for _, m := range layer {
+			p.logger.Info("building module",
+				slog.String("module", m.Path()),
+			)
 
-				go func(key string, errChan chan error) {
-					err := mod.Build()
-					if err != nil {
-						errChan <- err
-					}
-
-					sum, err := mod.Sum()
-					if err != nil {
-						errChan <- err
-					}
-
-					mut.Lock()
-					p.lockFile.Modules[mod.Path()] = sum
-					mut.Unlock()
-
-					errChan <- nil
-				}(key, errChan)
-			}
-
-			for range len(layer) {
-				err := <-errChan
+			go func(mod *mod.Mod, errChan chan error) {
+				err := mod.Build()
 				if err != nil {
-					return err
+					errChan <- err
 				}
+
+				sum, err := mod.Sum()
+				if err != nil {
+					errChan <- err
+				}
+
+				mut.Lock()
+				p.lockFile.Modules[mod.Path()] = sum
+				mut.Unlock()
+
+				errChan <- nil
+			}(m, errChan)
+		}
+
+		for range len(layer) {
+			err := <-errChan
+			if err != nil {
+				return err
 			}
 		}
 	}
@@ -97,20 +109,29 @@ func (p *Project) checkAcyclicRoot(node *collections.DirectedGraphNode[string, *
 	return true
 }
 
-func (p *Project) planBuildRoot(root *collections.DirectedGraphNode[string, *mod.Mod]) ([][]*mod.Mod, error) {
-	buildTree, err := p.planBuildNode(root)
-	if err != nil {
-		return nil, err
+func (p *Project) planBuildRoots(roots []*collections.DirectedGraphNode[string, *mod.Mod]) ([][]*mod.Mod, error) {
+	buildTrees := make([]*collections.Tree[*mod.Mod], 0, len(roots))
+	for _, root := range roots {
+		buildTree, err := p.planBuildNode(root)
+		if err != nil {
+			return nil, err
+		}
+
+		if buildTree != nil {
+			buildTrees = append(buildTrees, buildTree)
+		}
 	}
 
-	if buildTree == nil {
+	if len(buildTrees) == 0 {
 		return nil, nil
 	}
 
-	numLayers := buildTree.Height()
+	root := collections.NewTree[*mod.Mod](nil, buildTrees...)
+
+	numLayers := root.Height()
 	layers := make([][]*mod.Mod, numLayers)
 
-	p.planBuildLayers(buildTree, 0, layers)
+	p.planBuildLayers(root, 0, layers)
 
 	seen := collections.NewSet[*mod.Mod]()
 	deduped := make([][]*mod.Mod, 0, numLayers)
@@ -136,7 +157,11 @@ func (p *Project) planBuildRoot(root *collections.DirectedGraphNode[string, *mod
 }
 
 func (p *Project) planBuildLayers(node *collections.Tree[*mod.Mod], layerIdx int, layers [][]*mod.Mod) {
-	layers[layerIdx] = append(layers[layerIdx], node.Data())
+	mod := node.Data()
+
+	if mod != nil {
+		layers[layerIdx] = append(layers[layerIdx], node.Data())
+	}
 
 	for _, n := range node.Children() {
 		p.planBuildLayers(n, layerIdx+1, layers)

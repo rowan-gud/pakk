@@ -2,9 +2,7 @@ package parse
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
-	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -31,15 +29,10 @@ func (c *Command) RunEach(each []string) error {
 		cmd[idx] = parsed
 	}
 
-	log.Println("replace indices", replaceIndices)
-
 	for idx, item := range each {
 		for _, replace := range replaceIndices {
-			log.Println("replace", replace)
 			cmd[replace] = item
 		}
-
-		log.Println("running command", strings.Join(cmd, ","))
 
 		command := exec.Command(cmd[0], cmd[1:]...)
 		if err := command.Run(); err != nil {
