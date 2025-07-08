@@ -1,18 +1,53 @@
 package parse
 
 import (
+	"fmt"
+	"log"
 	"os/exec"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
 
 type Command struct {
 	*exec.Cmd
-	raw any
+	parsed []string
+	raw    any
 }
 
 func (c *Command) Raw() any {
 	return c.raw
+}
+
+func (c *Command) RunEach(each []string) error {
+	cmd := make([]string, len(c.parsed))
+	replaceIndices := []int{}
+
+	for idx, parsed := range c.parsed {
+		if parsed == "-" {
+			replaceIndices = append(replaceIndices, idx)
+		}
+
+		cmd[idx] = parsed
+	}
+
+	log.Println("replace indices", replaceIndices)
+
+	for idx, item := range each {
+		for _, replace := range replaceIndices {
+			log.Println("replace", replace)
+			cmd[replace] = item
+		}
+
+		log.Println("running command", strings.Join(cmd, ","))
+
+		command := exec.Command(cmd[0], cmd[1:]...)
+		if err := command.Run(); err != nil {
+			return fmt.Errorf("index %d: %w", idx, err)
+		}
+	}
+
+	return nil
 }
 
 func (c Command) MarshalTOML() ([]byte, error) {
@@ -24,16 +59,15 @@ func (c *Command) UnmarshalTOML(data any) error {
 		return nilErr("Command")
 	}
 
-	var cmds []string
 	var err error
 
 	switch d := data.(type) {
 	case string:
-		cmds, err = parseCommandFromString(d)
+		c.parsed, err = parseCommandFromString(d)
 	case []any:
-		cmds, err = parseStringArrayFromAnyArray(d)
+		c.parsed, err = parseStringArrayFromAnyArray(d)
 	case []string:
-		cmds = d
+		c.parsed = d
 	default:
 		return typeErr("Command", d)
 	}
@@ -43,7 +77,7 @@ func (c *Command) UnmarshalTOML(data any) error {
 	}
 
 	c.raw = data
-	c.Cmd = exec.Command(cmds[0], cmds[1:]...)
+	c.Cmd = exec.Command(c.parsed[0], c.parsed[1:]...)
 
 	return nil
 }

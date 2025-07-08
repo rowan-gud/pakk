@@ -23,6 +23,7 @@ var defaultExcludeDirs = []string{
 type parseConfigOptions struct {
 	RootDir     string
 	ExcludeDirs []string
+	LogFile     *os.File
 }
 
 func parseValues(pakkDir string) (map[string]any, error) {
@@ -70,9 +71,11 @@ func renderModFile(pakkDir string, ctx *render.RenderContext) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func parseProject(rootDir string) (*project.Project, error) {
+func parseProject(rootDir string, logFile *os.File) (*project.Project, error) {
 	pakkDir := filepath.Join(rootDir, ".pakk")
-	outDir := filepath.Join(pakkDir, "out")
+	outDir := filepath.Join(pakkDir, "build")
+
+	_ = os.MkdirAll(outDir, 0755)
 
 	values, err := parseValues(pakkDir)
 	if err != nil {
@@ -90,7 +93,7 @@ func parseProject(rootDir string) (*project.Project, error) {
 		return nil, fmt.Errorf("failed to render project file: %w", err)
 	}
 
-	project, err := project.Parse(projectBytes, ctx)
+	project, err := project.Parse(projectBytes, ctx, logFile)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +106,7 @@ func parseConfig(opts *parseConfigOptions) (*project.Project, error) {
 		opts.ExcludeDirs = defaultExcludeDirs
 	}
 
-	project, err := parseProject(opts.RootDir)
+	project, err := parseProject(opts.RootDir, opts.LogFile)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +114,8 @@ func parseConfig(opts *parseConfigOptions) (*project.Project, error) {
 	if err := findModules(opts.RootDir, opts, project); err != nil {
 		return nil, err
 	}
+
+	project.InitializeDependencies()
 
 	return project, nil
 }
@@ -170,12 +175,12 @@ func findModules(rootDir string, opts *parseConfigOptions, project *project.Proj
 			return err
 		}
 
-		module, err := mod.Parse(modBytes, ctx)
+		module, err := mod.Parse(modBytes, ctx, opts.LogFile)
 		if err != nil {
 			return err
 		}
 
-		project.AddMod(module)
+		project.AddMod(dir, module)
 	}
 
 	return nil
@@ -225,6 +230,10 @@ func isExcluded(path string, dir string) bool {
 
 	pathList = cleanedPathList.ToList()
 	dirList = cleanedDirList.ToList()
+
+	if len(pathList) == 0 {
+		return false
+	}
 
 	for idx, s := range dirList {
 		if s != "*" && s != pathList[idx] {

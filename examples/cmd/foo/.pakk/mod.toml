@@ -1,6 +1,8 @@
 name = "{{ .Values.name }}"
+deps = ["examples/pkga"]
 
 [bin]
 
-cmd = "go build -o {{ .Project.Out }}/{{ .Values.name }} {{ .Mod.Path }}"
-sources = "*.go"
+artifacts = ['{{ template "binary" . }}']
+cmd = 'go build -o {{ template "binary" . }} ./{{ .Mod.Path }}'
+sources = ["*.go", "NAME"]
