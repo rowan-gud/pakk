@@ -1,55 +1,49 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 
-	"github.com/BurntSushi/toml"
+	"github.com/spf13/cobra"
+
+	"github.com/rowan-gud/pakk/cmd/pakk/commands"
+	"github.com/rowan-gud/pakk/cmd/pakk/shared"
 )
 
+var (
+	rootCmd = &cobra.Command{
+		Use:              "pakk",
+		Short:            "A build tool for any language",
+		PersistentPreRun: prepare,
+	}
+)
+
+func init() {
+	rootCmd.AddCommand(commands.QueryCmd)
+}
+
 func main() {
+	if err := rootCmd.Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func prepare(cmd *cobra.Command, args []string) {
 	rootDir, err := os.Getwd()
 	if err != nil {
 		log.Fatal("Could not get working dir", err)
 	}
 
-	packageConfig, err := parsePackageConfig(rootDir)
+	_, err = shared.ParsePackageConfig(rootDir)
 	if err != nil {
 		log.Fatal("Could not parse package config", err)
 	}
 
-	builds, err := parseBuildConfigs(rootDir)
+	builds, err := shared.ParseBuildConfigs(rootDir)
 	if err != nil {
 		log.Fatal("Could not parse build config files", err)
 	}
 
-	tree := buildFileTree(rootDir, builds)
+	tree := shared.BuildFileTree(rootDir, builds)
 	tree.Print()
-
-	parts, err := builds["/home/rowan/source/pakk/utils"].Resolve("//config")
-	if err != nil {
-		log.Fatal("Could not resolve path", err)
-	}
-	fmt.Println("Resolve //config:lib:config", parts)
-
-	paths := [][]string{
-		{"/", "cmd", "pakk"},
-		{"/", "collections"},
-		{"/", "config"},
-		{"/", "utils"},
-	}
-
-	t, _ := toml.Marshal(packageConfig)
-	log.Println("Package", string(t))
-
-	for _, path := range paths {
-		v, err := tree.Get(path)
-		if err != nil {
-			log.Fatal("Could not get build ", err)
-		}
-		t, _ := toml.Marshal(v)
-		log.Println("build", path)
-		fmt.Println(string(t))
-	}
 }

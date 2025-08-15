@@ -1,4 +1,4 @@
-package main
+package shared
 
 import (
 	"fmt"
@@ -13,26 +13,11 @@ var (
 	possibleBuildFiles = map[string]struct{}{
 		"build.toml": {},
 	}
-	possiblePackageFiles = map[string]struct{}{
-		"package.toml": {},
-	}
+
+	buildConfigs map[string]*config.Build
 )
 
-func parsePackageConfig(rootDir string) (*config.Package, error) {
-	packageFile, err := findPackageFile(rootDir)
-	if err != nil {
-		return nil, err
-	}
-
-	packageConfig, err := config.ParsePackage(rootDir, packageFile)
-	if err != nil {
-		return nil, err
-	}
-
-	return packageConfig, nil
-}
-
-func parseBuildConfigs(rootDir string) (map[string]*config.Build, error) {
+func ParseBuildConfigs(rootDir string) (map[string]*config.Build, error) {
 	res := make(map[string]*config.Build)
 
 	if err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
@@ -61,26 +46,13 @@ func parseBuildConfigs(rootDir string) (map[string]*config.Build, error) {
 		return nil, err
 	}
 
+	buildConfigs = res
+
 	return res, nil
 }
 
-func findPackageFile(rootDir string) (string, error) {
-	dirFiles, err := os.ReadDir(rootDir)
-	if err != nil {
-		return "", fmt.Errorf("failed to read dir %s: %w", rootDir, err)
-	}
-
-	for _, dirFile := range dirFiles {
-		if dirFile.IsDir() {
-			continue
-		}
-
-		if _, ok := possiblePackageFiles[dirFile.Name()]; ok {
-			return filepath.Join(rootDir, dirFile.Name()), nil
-		}
-	}
-
-	return "", nil
+func BuildConfigs() map[string]*config.Build {
+	return buildConfigs
 }
 
 func findBuildFile(rootDir string) (string, error) {

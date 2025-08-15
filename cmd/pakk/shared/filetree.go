@@ -1,7 +1,6 @@
-package main
+package shared
 
 import (
-	"fmt"
 	"log"
 	"path/filepath"
 	"strings"
@@ -10,7 +9,11 @@ import (
 	"github.com/rowan-gud/pakk/config"
 )
 
-func buildFileTree(rootDir string, builds map[string]*config.Build) *collections.Trie[string, config.Build] {
+var (
+	buildFileTree *collections.Trie[string, config.Build]
+)
+
+func BuildFileTree(rootDir string, builds map[string]*config.Build) *collections.Trie[string, config.Build] {
 	tree := collections.NewTrie[string, config.Build]()
 
 	for path, build := range builds {
@@ -19,20 +22,24 @@ func buildFileTree(rootDir string, builds map[string]*config.Build) *collections
 			log.Fatal("Could not get relative path", err)
 		}
 
-		fmt.Println("Rel", rel)
 		parts := strings.Split(rel, string(filepath.Separator))
-		fmt.Println("Parts", parts)
 
 		if parts[0] == "." {
 			parts = parts[1:]
 		}
 
-		parts = append([]string{"/"}, parts...)
-
-		fmt.Println("Adding", parts, build)
+		if len(parts) == 0 {
+			parts = []string{"/"}
+		}
 
 		tree.Add(parts, build)
 	}
 
+	buildFileTree = tree
+
 	return tree
+}
+
+func FileTree() *collections.Trie[string, config.Build] {
+	return buildFileTree
 }
