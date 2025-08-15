@@ -1,0 +1,7 @@
+[bin.pakk]
+
+lang = "go"
+imports = [
+  "//config:lib:config",
+]
+sources = ["config.go", "main.go"]

@@ -1,245 +1,103 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
-	"text/template"
 
-	"github.com/BurntSushi/toml"
-	"github.com/rowan-gud/pakk/collections"
-	"github.com/rowan-gud/pakk/config/mod"
-	"github.com/rowan-gud/pakk/config/project"
-	"github.com/rowan-gud/pakk/config/render"
+	"github.com/rowan-gud/pakk/config"
 )
 
-var defaultExcludeDirs = []string{
-	".git",
-}
-
-type parseConfigOptions struct {
-	RootDir     string
-	ExcludeDirs []string
-	LogFile     *os.File
-}
-
-func parseValues(pakkDir string) (map[string]any, error) {
-	valuesFile := filepath.Join(pakkDir, "values.toml")
-
-	values := make(map[string]any)
-	if _, err := toml.DecodeFile(valuesFile, &values); err != nil {
-		return nil, err
+var (
+	possibleBuildFiles = map[string]struct{}{
+		"build.toml": {},
 	}
+	possiblePackageFiles = map[string]struct{}{
+		"package.toml": {},
+	}
+)
 
-	return values, nil
-}
-
-func renderProjectFile(pakkDir string, ctx *render.ProjectContext) ([]byte, error) {
-	helpersFile := filepath.Join(pakkDir, "helpers.tpl")
-	projectFile := filepath.Join(pakkDir, "project.toml")
-
-	tpl, err := template.ParseFiles(helpersFile, projectFile)
+func parsePackageConfig(rootDir string) (*config.Package, error) {
+	packageFile, err := findPackageFile(rootDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var buf bytes.Buffer
-	if err := tpl.ExecuteTemplate(&buf, "project.toml", ctx); err != nil {
+	packageConfig, err := config.ParsePackage(rootDir, packageFile)
+	if err != nil {
 		return nil, err
 	}
 
-	return buf.Bytes(), nil
+	return packageConfig, nil
 }
 
-func renderModFile(pakkDir string, ctx *render.RenderContext) ([]byte, error) {
-	helpersFile := filepath.Join(pakkDir, "helpers.tpl")
-	projectFile := filepath.Join(pakkDir, "mod.toml")
+func parseBuildConfigs(rootDir string) (map[string]*config.Build, error) {
+	res := make(map[string]*config.Build)
 
-	tpl, err := template.ParseFiles(helpersFile, projectFile)
-	if err != nil {
-		return nil, err
-	}
-
-	var buf bytes.Buffer
-	if err := tpl.ExecuteTemplate(&buf, "mod.toml", ctx); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
-}
-
-func parseProject(rootDir string, logFile *os.File) (*project.Project, error) {
-	pakkDir := filepath.Join(rootDir, ".pakk")
-	outDir := filepath.Join(pakkDir, "build")
-
-	_ = os.MkdirAll(outDir, 0755)
-
-	values, err := parseValues(pakkDir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse project values: %w", err)
-	}
-
-	ctx := &render.ProjectContext{
-		Out:    outDir,
-		Path:   rootDir,
-		Values: values,
-	}
-
-	projectBytes, err := renderProjectFile(pakkDir, ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to render project file: %w", err)
-	}
-
-	project, err := project.Parse(projectBytes, ctx, logFile)
-	if err != nil {
-		return nil, err
-	}
-
-	return project, nil
-}
-
-func parseConfig(opts *parseConfigOptions) (*project.Project, error) {
-	if len(opts.ExcludeDirs) == 0 {
-		opts.ExcludeDirs = defaultExcludeDirs
-	}
-
-	project, err := parseProject(opts.RootDir, opts.LogFile)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := findModules(opts.RootDir, opts, project); err != nil {
-		return nil, err
-	}
-
-	project.InitializeDependencies()
-
-	return project, nil
-}
-
-func findModules(rootDir string, opts *parseConfigOptions, project *project.Project) error {
-	excludeDirs := make([]string, len(opts.ExcludeDirs))
-
-	for idx, dir := range opts.ExcludeDirs {
-		if !strings.HasSuffix(dir, "/") {
-			excludeDirs[idx] = dir + "/"
-		} else {
-			excludeDirs[idx] = dir
-		}
-	}
-
-	pakkDirs, err := getMatchingPaths(rootDir, func(path string, d fs.DirEntry) bool {
-		for _, dir := range opts.ExcludeDirs {
-			if isExcluded(path, dir) {
-				return false
-			}
-		}
-
-		return d.IsDir() && d.Name() == ".pakk"
-	})
-	if err != nil {
-		return err
-	}
-
-	// We have at most this many mod files
-	modDirs := make([]string, 0, len(pakkDirs))
-
-	for _, dir := range pakkDirs {
-		modFile := filepath.Join(dir, "mod.toml")
-		if _, err := os.Stat(modFile); err == nil {
-			modDirs = append(modDirs, filepath.Dir(dir))
-		}
-	}
-
-	for _, dir := range modDirs {
-		pakkDir := filepath.Join(dir, ".pakk")
-
-		values, err := parseValues(pakkDir)
+	if err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		ctx := &render.RenderContext{
-			Mod: render.ModContext{
-				Path: dir,
-			},
-			Project: project.Ctx(),
-			Values:  values,
+		if !d.IsDir() {
+			return nil
 		}
 
-		modBytes, err := renderModFile(pakkDir, ctx)
+		filePath, err := findBuildFile(path)
+		if err != nil || filePath == "" {
+			return err
+		}
+
+		build, err := config.ParseBuild(rootDir, filePath)
 		if err != nil {
 			return err
 		}
 
-		module, err := mod.Parse(modBytes, ctx, opts.LogFile)
-		if err != nil {
-			return err
-		}
-
-		project.AddMod(dir, module)
-	}
-
-	return nil
-}
-
-func getMatchingPaths(rootDir string, fn func(path string, d fs.DirEntry) bool) ([]string, error) {
-	files := []string{}
-
-	err := filepath.WalkDir(rootDir, func(path string, d fs.DirEntry, err error) error {
-		if fn(path, d) {
-			files = append(files, path)
-		}
+		res[path] = build
 
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return nil, err
 	}
 
-	return files, nil
+	return res, nil
 }
 
-func isExcluded(path string, dir string) bool {
-	pathList := filepath.SplitList(path)
-	dirList := filepath.SplitList(dir)
+func findPackageFile(rootDir string) (string, error) {
+	dirFiles, err := os.ReadDir(rootDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read dir %s: %w", rootDir, err)
+	}
 
-	cleanedPathList := collections.NewStack[string]()
-	cleanedDirList := collections.NewStack[string]()
-
-	for _, s := range pathList {
-		if s == ".." && !cleanedPathList.Empty() {
-			cleanedPathList.Pop()
+	for _, dirFile := range dirFiles {
+		if dirFile.IsDir() {
+			continue
 		}
-		if s != "." {
-			cleanedPathList.Push(s)
+
+		if _, ok := possiblePackageFiles[dirFile.Name()]; ok {
+			return filepath.Join(rootDir, dirFile.Name()), nil
 		}
 	}
 
-	for _, s := range dirList {
-		if s == ".." && !cleanedDirList.Empty() {
-			cleanedDirList.Pop()
-		}
-		if s != "." {
-			cleanedDirList.Push(s)
-		}
+	return "", nil
+}
+
+func findBuildFile(rootDir string) (string, error) {
+	dirFiles, err := os.ReadDir(rootDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to read dir %s: %w", rootDir, err)
 	}
 
-	pathList = cleanedPathList.ToList()
-	dirList = cleanedDirList.ToList()
+	for _, dirFile := range dirFiles {
+		if dirFile.IsDir() {
+			continue
+		}
 
-	if len(pathList) == 0 {
-		return false
-	}
-
-	for idx, s := range dirList {
-		if s != "*" && s != pathList[idx] {
-			return false
+		if _, ok := possibleBuildFiles[dirFile.Name()]; ok {
+			return filepath.Join(rootDir, dirFile.Name()), nil
 		}
 	}
 
-	return true
+	return "", nil
 }

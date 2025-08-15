@@ -1,0 +1,8 @@
+[[plugins]]
+
+name = "go"
+version = "0.1.0"
+
+[plugins.options]
+
+import_path = "github.com/rowan-gud/pakk"

@@ -1,0 +1,5 @@
+[lib.config]
+
+lang = "go"
+imports = ["//utils:lib:utils"]
+sources = ["bin.go", "build.go", "lib.go"]

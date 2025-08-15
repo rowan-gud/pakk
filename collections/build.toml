@@ -1,0 +1,4 @@
+[lib.collections]
+
+lang = "go"
+sources = ["dag.go", "trie.go"]

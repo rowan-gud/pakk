@@ -1,5 +1,0 @@
-name = "{{ .Values.name }}"
-
-[pkg]
-
-sources = ['pkga.go']

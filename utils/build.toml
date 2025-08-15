@@ -1,0 +1,4 @@
+[lib.utils]
+
+lang = "go"
+sources = ["pathresolver.go"]

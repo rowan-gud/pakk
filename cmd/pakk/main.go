@@ -2,58 +2,54 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"log"
-	"log/slog"
 	"os"
-	"path/filepath"
-	"time"
+
+	"github.com/BurntSushi/toml"
 )
 
-func fatal(logger *slog.Logger, message string, attrs ...any) {
-	logger.Error(message, attrs...)
-	os.Exit(1)
-}
-
 func main() {
-	root, err := os.Getwd()
+	rootDir, err := os.Getwd()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Could not get working dir", err)
 	}
 
-	out := filepath.Join(root, ".pakk")
-	logDir := filepath.Join(out, "logs")
-
-	_ = os.MkdirAll(logDir, 0755)
-
-	logFile, err := os.Create(filepath.Join(
-		logDir,
-		fmt.Sprintf("%s.log", time.Now().Format("20060102150405")),
-	))
+	packageConfig, err := parsePackageConfig(rootDir)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Could not parse package config", err)
 	}
-	defer logFile.Close()
 
-	logger := slog.New(slog.NewTextHandler(
-		io.MultiWriter(os.Stdout, logFile),
-		nil,
-	))
-
-	project, err := parseConfig(&parseConfigOptions{
-		RootDir: ".",
-		LogFile: logFile,
-	})
+	builds, err := parseBuildConfigs(rootDir)
 	if err != nil {
-		fatal(logger, "failed to parse config",
-			slog.Any("error", err),
-		)
+		log.Fatal("Could not parse build config files", err)
 	}
-	defer project.Cleanup()
 
-	if err := project.Build(); err != nil {
-		fatal(logger, "failed to build project",
-			slog.Any("error", err),
-		)
+	tree := buildFileTree(rootDir, builds)
+	tree.Print()
+
+	parts, err := builds["/home/rowan/source/pakk/utils"].Resolve("//config")
+	if err != nil {
+		log.Fatal("Could not resolve path", err)
+	}
+	fmt.Println("Resolve //config:lib:config", parts)
+
+	paths := [][]string{
+		{"/", "cmd", "pakk"},
+		{"/", "collections"},
+		{"/", "config"},
+		{"/", "utils"},
+	}
+
+	t, _ := toml.Marshal(packageConfig)
+	log.Println("Package", string(t))
+
+	for _, path := range paths {
+		v, err := tree.Get(path)
+		if err != nil {
+			log.Fatal("Could not get build ", err)
+		}
+		t, _ := toml.Marshal(v)
+		log.Println("build", path)
+		fmt.Println(string(t))
 	}
 }
